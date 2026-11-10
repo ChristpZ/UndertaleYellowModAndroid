@@ -20,9 +20,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "*CLI*Linux*" --dir umt || \
-          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "*CLI*" --dir umt
-          cd umt && for f in *.zip; do unzip -q "$f"; done
+          gh release view --repo UnderminersTeam/UndertaleModTool --json assets --jq '.assets[].name' | tee assets.txt
+          NAME=$(grep -i 'cli' assets.txt | grep -iE 'linux|ubuntu' | head -n1)
+          echo "Elegido: $NAME"
+          [ -n "$NAME" ] || { echo "No se encontro CLI para Linux"; exit 1; }
+          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "$NAME" --dir umt
+          cd umt && unzip -o -q "$NAME"
           chmod +x UndertaleModCli* || true
           ls -la
 
@@ -49,7 +52,6 @@ jobs:
               }
           }
           EOF
-          sed -i 's/^          //' export.csx
 
       - name: Ejecutar exportacion
         run: |
