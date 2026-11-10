@@ -9,7 +9,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Descargar el repositorio (para fondo.jpg)
+      - name: Descargar el repositorio (para la foto)
         uses: actions/checkout@v4
 
       - name: Descargar el APK original
@@ -35,10 +35,14 @@ jobs:
 
       - name: Preparar la imagen de fondo (320x240)
         run: |
-          test -f fondo.jpg || { echo "Falta fondo.jpg en la raiz del repositorio"; exit 1; }
+          echo "Archivos en la raiz:"
+          ls -la
+          F=$(find . -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | head -n1)
+          echo "Imagen elegida: $F"
+          [ -n "$F" ] || { echo "No hay imagen en la raiz del repositorio"; exit 1; }
           IM=$(command -v magick || command -v convert)
-          $IM fondo.jpg -resize 320x240^ -gravity center -extent 320x240 -blur 0x6 -brightness-contrast -25 bg.png
-          $IM fondo.jpg -resize x240 fg.png
+          $IM "${F}[0]" -resize 320x240^ -gravity center -extent 320x240 -blur 0x6 -brightness-contrast -25 bg.png
+          $IM "${F}[0]" -resize x240 fg.png
           $IM bg.png fg.png -gravity center -composite -quality 85 fondo_menu.jpg
           ls -la fondo_menu.jpg
           base64 -w0 fondo_menu.jpg > fondo_b64.txt
