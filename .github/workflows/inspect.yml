@@ -1,0 +1,65 @@
+name: Inspeccionar juego
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Descargar el APK original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern "uty-es-android.apk" --dir .
+          unzip -q uty-es-android.apk assets/game.droid -d apk_extract
+
+      - name: Descargar UndertaleModTool CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "*CLI*Linux*" --dir umt || \
+          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "*CLI*" --dir umt
+          cd umt && for f in *.zip; do unzip -q "$f"; done
+          chmod +x UndertaleModCli* || true
+          ls -la
+
+      - name: Script de exportacion
+        run: |
+          cat > export.csx <<'EOF'
+          using System.IO;
+          using System.Text;
+          Directory.CreateDirectory("out/code");
+          var sb = new StringBuilder();
+          foreach (var s in Data.Sprites) sb.AppendLine(s.Name.Content);
+          File.WriteAllText("out/sprites.txt", sb.ToString());
+          var bg = new StringBuilder();
+          foreach (var b in Data.Backgrounds) bg.AppendLine(b.Name.Content);
+          File.WriteAllText("out/backgrounds.txt", bg.ToString());
+          foreach (var c in Data.Code)
+          {
+              string n = c.Name.Content;
+              string low = n.ToLower();
+              if (low.Contains("save") || low.Contains("load") || low.Contains("file") || low.Contains("menu") || low.Contains("title") || low.Contains("intro") || low.Contains("init"))
+              {
+                  try { File.WriteAllText("out/code/" + n + ".gml", GetDecompiledText(c)); }
+                  catch (System.Exception e) { File.WriteAllText("out/code/" + n + ".err", e.Message); }
+              }
+          }
+          EOF
+          sed -i 's/^          //' export.csx
+
+      - name: Ejecutar exportacion
+        run: |
+          mkdir -p out
+          ./umt/UndertaleModCli load apk_extract/assets/game.droid -s export.csx || \
+          dotnet umt/UndertaleModCli.dll load apk_extract/assets/game.droid -s export.csx
+          ls out | head
+
+      - name: Subir resultados
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados
+          path: out/
