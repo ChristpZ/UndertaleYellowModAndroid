@@ -1,0 +1,458 @@
+name: Construir APK con mod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar el repositorio (para fondo.jpg)
+        uses: actions/checkout@v4
+
+      - name: Descargar el APK original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern "uty-es-android.apk" --dir .
+          mkdir -p apk_extract
+          unzip -q uty-es-android.apk assets/game.droid -d apk_extract
+
+      - name: Descargar UndertaleModTool CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view --repo UnderminersTeam/UndertaleModTool --json assets --jq '.assets[].name' | tee assets.txt
+          NAME=$(grep -i 'cli' assets.txt | grep -iE 'linux|ubuntu' | head -n1)
+          echo "Elegido: $NAME"
+          [ -n "$NAME" ] || { echo "No se encontro CLI para Linux"; exit 1; }
+          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "$NAME" --dir umt
+          cd umt && unzip -o -q "$NAME"
+          chmod +x UndertaleModCli* || true
+          ls -la
+
+      - name: Preparar la imagen de fondo (320x240)
+        run: |
+          test -f fondo.jpg || { echo "Falta fondo.jpg en la raiz del repositorio"; exit 1; }
+          IM=$(command -v magick || command -v convert)
+          $IM fondo.jpg -resize 320x240^ -gravity center -extent 320x240 -blur 0x6 -brightness-contrast -25 bg.png
+          $IM fondo.jpg -resize x240 fg.png
+          $IM bg.png fg.png -gravity center -composite -quality 85 fondo_menu.jpg
+          ls -la fondo_menu.jpg
+          base64 -w0 fondo_menu.jpg > fondo_b64.txt
+
+      - name: Escribir el codigo del mod
+        run: |
+          cat > create.gml <<'EOF'
+          var world_value = 0;
+          route = 2;
+          if (!variable_global_exists("slot"))
+          {
+              ini_open("slotcfg.ini");
+              global.slot = ini_read_real("s", "n", 1);
+              ini_close();
+          }
+          if (file_exists("Save.sav"))
+          {
+              var sf = "Slot" + string(global.slot) + ".sav";
+              if (file_exists(sf))
+              {
+                  file_delete(sf);
+              }
+              file_copy("Save.sav", sf);
+          }
+          slotrow = false;
+          reload = false;
+          if (!variable_global_exists("menu_sprite"))
+          {
+              global.menu_sprite = asset_get_index("bg_ruins02");
+          }
+          if (!variable_global_exists("fondo_spr"))
+          {
+              global.fondo_spr = -1;
+          }
+          if (global.fondo_spr == -1)
+          {
+              var fb = buffer_base64_decode("@@B64@@");
+              buffer_save(fb, "fondo_menu.jpg");
+              buffer_delete(fb);
+              global.fondo_spr = sprite_add("fondo_menu.jpg", 1, false, false, 0, 0);
+          }
+          if (file_exists("Save.sav"))
+          {
+              ini_open("Save.sav");
+              global.current_room_overworld = ini_read_string("Save1", "room", "rm_ruins00");
+              global.menu_sprite = asset_get_index(ini_read_string("Save1", "Menu", "bg_ruins02"));
+              route = ini_read_real("Route", "00", 2);
+              world_value = scr_determine_world_value_yellow();
+              ini_close();
+          }
+          mus = 129;
+          switch (world_value)
+          {
+              case 0:
+              case 5:
+                  mus = 129;
+                  break;
+              case 1:
+                  mus = 130;
+                  break;
+              case 2:
+                  mus = 131;
+                  break;
+              case 3:
+                  mus = 17;
+                  break;
+              case 4:
+                  mus = 45;
+                  break;
+          }
+          if (route != 3)
+          {
+              audio_play_sound(mus, 20, 1);
+          }
+          p[3] = false;
+          p[2] = false;
+          p[1] = true;
+          sh = 0.5;
+          waiter = 0;
+          EOF
+
+          cat > step.gml <<'EOF'
+          if (waiter == 1)
+          {
+              exit;
+          }
+          scr_get_input();
+          if (reload)
+          {
+              reload = false;
+              if (file_exists("Save.sav"))
+              {
+                  ini_open("Save.sav");
+                  global.current_room_overworld = ini_read_string("Save1", "room", "rm_ruins00");
+                  global.menu_sprite = asset_get_index(ini_read_string("Save1", "Menu", "bg_ruins02"));
+                  route = ini_read_real("Route", "00", 2);
+                  ini_close();
+              }
+          }
+          if (room == rm_mainmenu)
+          {
+              if (slotrow)
+              {
+                  if (global.up_keyp)
+                  {
+                      slotrow = false;
+                      p[3] = true;
+                  }
+                  else
+                  {
+                      var ns = global.slot;
+                      if (global.left_keyp)
+                      {
+                          ns -= 1;
+                      }
+                      if (global.right_keyp)
+                      {
+                          ns += 1;
+                      }
+                      if (ns < 1)
+                      {
+                          ns = 3;
+                      }
+                      if (ns > 3)
+                      {
+                          ns = 1;
+                      }
+                      if (ns != global.slot)
+                      {
+                          var oldf = "Slot" + string(global.slot) + ".sav";
+                          var newf = "Slot" + string(ns) + ".sav";
+                          if (file_exists("Save.sav"))
+                          {
+                              if (file_exists(oldf))
+                              {
+                                  file_delete(oldf);
+                              }
+                              file_copy("Save.sav", oldf);
+                              file_delete("Save.sav");
+                          }
+                          if (file_exists(newf))
+                          {
+                              file_copy(newf, "Save.sav");
+                          }
+                          global.slot = ns;
+                          ini_open("slotcfg.ini");
+                          ini_write_real("s", "n", ns);
+                          ini_close();
+                          reload = true;
+                      }
+                  }
+              }
+              else
+              {
+                  if (global.left_keyp && p[2] == true)
+                  {
+                      p[2] = false;
+                      p[1] = true;
+                  }
+                  if (global.right_keyp && p[1] == true)
+                  {
+                      p[2] = true;
+                      p[1] = false;
+                  }
+                  if (global.down_keyp)
+                  {
+                      if (p[3] == true)
+                      {
+                          p[3] = false;
+                          slotrow = true;
+                      }
+                      else
+                      {
+                          p[1] = false;
+                          p[2] = false;
+                          p[3] = true;
+                      }
+                  }
+                  if (global.up_keyp && p[3] == true)
+                  {
+                      p[3] = false;
+                      p[1] = true;
+                  }
+              }
+          }
+          else
+          {
+              if (global.down_keyp)
+              {
+                  p[1] = false;
+                  p[2] = true;
+              }
+              if (global.up_keyp)
+              {
+                  p[1] = true;
+                  p[2] = false;
+              }
+          }
+          if (keyboard_multicheck_pressed(0) == true && !slotrow)
+          {
+              if (room == rm_mainmenu)
+              {
+                  if (p[1] == true)
+                  {
+                      scr_loadgame();
+                      audio_stop_sound(mus);
+                  }
+                  if (p[2] == true)
+                  {
+                      audio_stop_sound(mus);
+                      audio_play_sound(mus_cymbal, 10, 0);
+                      alarm[1] = 1;
+                      instance_create(0, 0, obj_transition_white);
+                      waiter = 1;
+                  }
+                  if (p[3] == true)
+                  {
+                      audio_stop_sound(mus);
+                      room_goto(rm_config);
+                  }
+              }
+              else
+              {
+                  if (p[1] == true && !instance_exists(obj_transition_white))
+                  {
+                      audio_stop_sound(mus);
+                      audio_play_sound(mus_cymbal, 10, 0);
+                      alarm[1] = 1;
+                      instance_create(0, 0, obj_transition_white);
+                      waiter = 1;
+                  }
+                  if (p[2] == true)
+                  {
+                      audio_stop_sound(mus);
+                      room = rm_config;
+                  }
+              }
+          }
+          EOF
+
+          cat > draw.gml <<'EOF'
+          with (other)
+          {
+              draw_set_font(fnt_main);
+              draw_set_halign(fa_left);
+              if (room == rm_mainmenu)
+              {
+                  var xv = camera_get_view_x(view_camera[0]);
+                  var yv = camera_get_view_y(view_camera[0]);
+                  var xx = 160;
+                  var bg_yy = 175;
+                  if (global.fondo_spr != -1)
+                  {
+                      draw_sprite(global.fondo_spr, 0, xv, yv);
+                  }
+                  else
+                  {
+                      if (route != 3)
+                      {
+                          draw_sprite(global.menu_sprite, 0, xx, bg_yy);
+                      }
+                  }
+                  var yy = 70;
+                  if (p[1] == true)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_text_outline(xv + 85, yy, string_hash_to_newline("Continuar"));
+                  draw_set_color(c_white);
+                  if (p[2] == true)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_text_outline(xv + 175, yy, string_hash_to_newline("Resetear"));
+                  draw_set_color(c_white);
+                  if (p[3] == true)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_set_halign(fa_center);
+                  draw_text_outline(xv + 160, yy + 20, string_hash_to_newline("Configurar"));
+                  draw_set_color(c_white);
+                  if (slotrow)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_text_outline(xv + 160, yy + 40, string_hash_to_newline("< Ranura " + string(global.slot) + " >"));
+                  draw_set_color(c_white);
+                  draw_set_halign(fa_left);
+                  if (file_exists("Save.sav"))
+                  {
+                      ini_open("Save.sav");
+                      draw_text_outline(xv + 65, yy - 50, string_hash_to_newline("Clover"));
+                      draw_text_outline(xv + 145, yy - 50, string_hash_to_newline("NV" + string(ini_read_real("Save1", "NV", 1))));
+                      var play_time = ini_read_real("Playtime", "Seconds", 0);
+                      var string_minutes = string(play_time div 60);
+                      var string_seconds = string(play_time % 60);
+                      if (real(string_minutes) < 10)
+                      {
+                          string_minutes = "0" + string_minutes;
+                      }
+                      if (real(string_seconds) < 10)
+                      {
+                          string_seconds = "0" + string_seconds;
+                      }
+                      draw_text_outline(xv + 210, yy - 50, string_hash_to_newline(string_minutes + ":" + string_seconds));
+                      draw_text_outline(xv + 65, yy - 30, string_hash_to_newline(ini_read_string("Save1", "rmName", "Room Name")));
+                      ini_close();
+                  }
+                  else
+                  {
+                      draw_text_outline(xv + 65, yy - 50, string_hash_to_newline("Ranura vacia"));
+                  }
+              }
+              else
+              {
+                  draw_set_halign(fa_center);
+                  draw_set_font(fnt_battle);
+                  draw_set_color(c_white);
+                  if (p[1] == true)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_text_outline(160, 170, string_hash_to_newline("Comenzar Juego"));
+                  draw_set_color(c_white);
+                  if (p[2] == true)
+                  {
+                      draw_set_color(c_yellow);
+                  }
+                  draw_text_outline(160, 190, string_hash_to_newline("Configurar"));
+                  draw_set_halign(fa_left);
+                  draw_set_color(c_white);
+              }
+          }
+          EOF
+
+          python3 - <<'PY'
+          b64 = open("fondo_b64.txt").read().strip()
+          t = open("create.gml").read().replace("@@B64@@", b64)
+          open("create.gml", "w").write(t)
+          PY
+
+          cat > patch.csx <<'EOF'
+          using System;
+          using System.IO;
+
+          void Patch(string name, string gml)
+          {
+              ImportGMLString(name, gml);
+              Console.WriteLine("OK " + name);
+          }
+
+          Patch("gml_Object_obj_mainmenu_Create_0", File.ReadAllText("create.gml"));
+          Patch("gml_Object_obj_mainmenu_Step_0", File.ReadAllText("step.gml"));
+          Patch("gml_Object_obj_mainmenu_Draw_0", File.ReadAllText("draw.gml"));
+
+          string sb = GetDecompiledText("gml_Object_obj_savebox_Step_0");
+          if (!sb.Contains("scr_savegame();"))
+          {
+              throw new Exception("No se encontro scr_savegame(); en obj_savebox_Step_0");
+          }
+          string hook = "scr_savegame();\n" +
+              "if (variable_global_exists(\"slot\"))\n" +
+              "{\n" +
+              "    var slotf = \"Slot\" + string(global.slot) + \".sav\";\n" +
+              "    if (file_exists(slotf))\n" +
+              "    {\n" +
+              "        file_delete(slotf);\n" +
+              "    }\n" +
+              "    file_copy(\"Save.sav\", slotf);\n" +
+              "}";
+          sb = sb.Replace("scr_savegame();", hook);
+          Patch("gml_Object_obj_savebox_Step_0", sb);
+          EOF
+
+      - name: Aplicar el mod a game.droid
+        run: |
+          ./umt/UndertaleModCli load apk_extract/assets/game.droid -s patch.csx -o patched.droid || \
+          dotnet umt/UndertaleModCli.dll load apk_extract/assets/game.droid -s patch.csx -o patched.droid
+          ls -la patched.droid
+
+      - name: Reconstruir el APK
+        run: |
+          cp uty-es-android.apk mod.apk
+          zip -q -d mod.apk 'META-INF/*' || true
+          mkdir -p stage/assets
+          cp patched.droid stage/assets/game.droid
+          (cd stage && zip -q ../mod.apk assets/game.droid)
+          ls -la mod.apk
+
+      - name: Restaurar la llave de firma (cache)
+        uses: actions/cache@v4
+        with:
+          path: mod.keystore
+          key: keystore-uty-v1
+
+      - name: Alinear y firmar
+        run: |
+          BT=$(ls -d "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/* | sort -V | tail -n1)
+          echo "build-tools: $BT"
+          if [ ! -f mod.keystore ]; then
+            keytool -genkeypair -keystore mod.keystore -storepass android -keypass android \
+              -alias mod -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=UTY Mod"
+          fi
+          "$BT/zipalign" -p -f 4 mod.apk aligned.apk
+          "$BT/apksigner" sign --ks mod.keystore --ks-pass pass:android --key-pass pass:android \
+            --out uty-mod.apk aligned.apk
+          "$BT/apksigner" verify uty-mod.apk
+          ls -la uty-mod.apk
+
+      - name: Publicar el APK en un Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mod --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh release create mod uty-mod.apk --repo "$GITHUB_REPOSITORY" \
+            --title "APK con mod" --notes "Ranuras de guardado y fondo personalizado."
