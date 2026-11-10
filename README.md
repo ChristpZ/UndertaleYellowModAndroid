@@ -1,2 +1,2 @@
 # UndertaleYellowModAndroid
-A sabe data mod
+A save data mod
