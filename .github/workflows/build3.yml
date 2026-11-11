@@ -70,6 +70,11 @@ jobs:
           xsel = 1;
           msg = "";
           msgt = 0;
+          showpath = false;
+          pick = false;
+          nfiles = 1;
+          fsel = 0;
+          fl[0] = "Portapapeles";
           reload = false;
           if (!variable_global_exists("menu_sprite"))
           {
@@ -138,6 +143,7 @@ jobs:
               if (msgt <= 0)
               {
                   msg = "";
+                  showpath = false;
               }
           }
           if (reload)
@@ -155,132 +161,40 @@ jobs:
           var in_main = (room == rm_mainmenu);
           if (xrow > 0)
           {
-              if (global.up_keyp)
+              if (pick)
               {
-                  xrow -= 1;
-                  if (xrow == 0)
+                  if (global.up_keyp)
                   {
-                      if (in_main)
-                      {
-                          p[3] = true;
-                      }
-                      else
-                      {
-                          p[2] = true;
-                      }
+                      pick = false;
                   }
-              }
-              else if (global.down_keyp)
-              {
-                  if (xrow < 2)
-                  {
-                      xrow += 1;
-                      if (!in_main)
-                      {
-                          xsel = 2;
-                      }
-                  }
-              }
-              else
-              {
-                  if (xrow == 1)
-                  {
-                      var ns = global.slot;
-                      if (global.left_keyp)
-                      {
-                          ns -= 1;
-                      }
-                      if (global.right_keyp)
-                      {
-                          ns += 1;
-                      }
-                      if (ns < 1)
-                      {
-                          ns = 3;
-                      }
-                      if (ns > 3)
-                      {
-                          ns = 1;
-                      }
-                      if (ns != global.slot)
-                      {
-                          var oldf = "Slot" + string(global.slot) + ".sav";
-                          var newf = "Slot" + string(ns) + ".sav";
-                          if (file_exists("Save.sav"))
-                          {
-                              if (file_exists(oldf))
-                              {
-                                  file_delete(oldf);
-                              }
-                              file_copy("Save.sav", oldf);
-                              file_delete("Save.sav");
-                          }
-                          if (file_exists(newf))
-                          {
-                              file_copy(newf, "Save.sav");
-                          }
-                          global.slot = ns;
-                          ini_open("slotcfg.ini");
-                          ini_write_real("s", "n", ns);
-                          ini_close();
-                          reload = true;
-                          if (!in_main && file_exists("Save.sav"))
-                          {
-                              audio_stop_sound(mus);
-                              room_goto(rm_mainmenu);
-                          }
-                      }
-                  }
-                  if (xrow == 2 && in_main)
+                  else
                   {
                       if (global.left_keyp)
                       {
-                          xsel = 1;
+                          fsel -= 1;
+                          if (fsel < 0)
+                          {
+                              fsel = nfiles - 1;
+                          }
                       }
                       if (global.right_keyp)
                       {
-                          xsel = 2;
-                      }
-                  }
-                  if (xrow == 2 && keyboard_multicheck_pressed(0) == true)
-                  {
-                      if (xsel == 1 && in_main)
-                      {
-                          if (file_exists("Save.sav"))
+                          fsel += 1;
+                          if (fsel >= nfiles)
                           {
-                              var b1 = buffer_load("Save.sav");
-                              var c1 = buffer_compress(b1, 0, buffer_get_size(b1));
-                              var s1 = buffer_base64_encode(c1, 0, buffer_get_size(c1));
-                              buffer_delete(b1);
-                              buffer_delete(c1);
-                              var s2 = "";
-                              if (file_exists("Save02.sav"))
-                              {
-                                  var b2 = buffer_load("Save02.sav");
-                                  var c2 = buffer_compress(b2, 0, buffer_get_size(b2));
-                                  s2 = buffer_base64_encode(c2, 0, buffer_get_size(c2));
-                                  buffer_delete(b2);
-                                  buffer_delete(c2);
-                              }
-                              var code = "UTY1:" + s1 + ":" + s2;
-                              clipboard_set_text(code);
-                              var tf = file_text_open_write("partida_export.txt");
-                              file_text_write_string(tf, code);
-                              file_text_close(tf);
-                              msg = "Codigo copiado";
+                              fsel = 0;
+                          }
+                      }
+                      if (keyboard_multicheck_pressed(0) == true)
+                      {
+                          var icode = "";
+                          if (fsel == 0)
+                          {
+                              icode = clipboard_get_text();
                           }
                           else
                           {
-                              msg = "No hay partida";
-                          }
-                          msgt = 150;
-                      }
-                      else
-                      {
-                          var icode = clipboard_get_text();
-                          if (string_copy(icode, 1, 5) != "UTY1:" && file_exists("partida_import.txt"))
-                          {
-                              var rf = file_text_open_read("partida_import.txt");
+                              var rf = file_text_open_read(fl[fsel]);
                               icode = file_text_read_string(rf);
                               file_text_close(rf);
                           }
@@ -343,13 +257,172 @@ jobs:
                                   file_delete(sf2);
                               }
                               file_copy("Save.sav", sf2);
+                              pick = false;
                               audio_stop_sound(mus);
                               room_goto(rm_mainmenu);
                           }
                           else
                           {
                               msg = "Codigo invalido";
+                              showpath = false;
                               msgt = 150;
+                          }
+                      }
+                  }
+              }
+              else
+              {
+                  if (global.up_keyp)
+                  {
+                      xrow -= 1;
+                      if (xrow == 0)
+                      {
+                          if (in_main)
+                          {
+                              p[3] = true;
+                          }
+                          else
+                          {
+                              p[2] = true;
+                          }
+                      }
+                  }
+                  else if (global.down_keyp)
+                  {
+                      if (xrow < 2)
+                      {
+                          xrow += 1;
+                          if (!in_main)
+                          {
+                              xsel = 2;
+                          }
+                      }
+                  }
+                  else
+                  {
+                      if (xrow == 1)
+                      {
+                          var ns = global.slot;
+                          if (global.left_keyp)
+                          {
+                              ns -= 1;
+                          }
+                          if (global.right_keyp)
+                          {
+                              ns += 1;
+                          }
+                          if (ns < 1)
+                          {
+                              ns = 3;
+                          }
+                          if (ns > 3)
+                          {
+                              ns = 1;
+                          }
+                          if (ns != global.slot)
+                          {
+                              var oldf = "Slot" + string(global.slot) + ".sav";
+                              var newf = "Slot" + string(ns) + ".sav";
+                              if (file_exists("Save.sav"))
+                              {
+                                  if (file_exists(oldf))
+                                  {
+                                      file_delete(oldf);
+                                  }
+                                  file_copy("Save.sav", oldf);
+                                  file_delete("Save.sav");
+                              }
+                              if (file_exists(newf))
+                              {
+                                  file_copy(newf, "Save.sav");
+                              }
+                              global.slot = ns;
+                              ini_open("slotcfg.ini");
+                              ini_write_real("s", "n", ns);
+                              ini_close();
+                              reload = true;
+                              if (!in_main && file_exists("Save.sav"))
+                              {
+                                  audio_stop_sound(mus);
+                                  room_goto(rm_mainmenu);
+                              }
+                          }
+                      }
+                      if (xrow == 2 && in_main)
+                      {
+                          if (global.left_keyp)
+                          {
+                              xsel = 1;
+                          }
+                          if (global.right_keyp)
+                          {
+                              xsel = 2;
+                          }
+                      }
+                      if (xrow == 2 && keyboard_multicheck_pressed(0) == true)
+                      {
+                          if (xsel == 1 && in_main)
+                          {
+                              if (file_exists("Save.sav"))
+                              {
+                                  var b1 = buffer_load("Save.sav");
+                                  var c1 = buffer_compress(b1, 0, buffer_get_size(b1));
+                                  var s1 = buffer_base64_encode(c1, 0, buffer_get_size(c1));
+                                  buffer_delete(b1);
+                                  buffer_delete(c1);
+                                  var s2 = "";
+                                  if (file_exists("Save02.sav"))
+                                  {
+                                      var b2 = buffer_load("Save02.sav");
+                                      var c2 = buffer_compress(b2, 0, buffer_get_size(b2));
+                                      s2 = buffer_base64_encode(c2, 0, buffer_get_size(c2));
+                                      buffer_delete(b2);
+                                      buffer_delete(c2);
+                                  }
+                                  var code = "UTY1:" + s1 + ":" + s2;
+                                  var ename = "partida_" + string(global.slot) + ".txt";
+                                  var tf = file_text_open_write(ename);
+                                  file_text_write_string(tf, code);
+                                  file_text_close(tf);
+                                  clipboard_set_text(code);
+                                  msg = "Guardado: " + ename;
+                                  showpath = true;
+                                  msgt = 400;
+                              }
+                              else
+                              {
+                                  msg = "No hay partida";
+                                  showpath = false;
+                                  msgt = 150;
+                              }
+                          }
+                          else
+                          {
+                              nfiles = 1;
+                              fl[0] = "Portapapeles";
+                              var fn = file_find_first("partida*.txt", 0);
+                              while (fn != "")
+                              {
+                                  if (nfiles < 20)
+                                  {
+                                      fl[nfiles] = fn;
+                                      nfiles += 1;
+                                  }
+                                  fn = file_find_next();
+                              }
+                              file_find_close();
+                              fsel = 0;
+                              if (nfiles > 1)
+                              {
+                                  fsel = 1;
+                              }
+                              pick = true;
+                              if (nfiles == 1)
+                              {
+                                  msg = "Sin archivos en:";
+                                  showpath = true;
+                                  msgt = 400;
+                              }
                           }
                       }
                   }
@@ -501,25 +574,38 @@ jobs:
                   }
                   draw_text_outline(xv + 160, yy + 40, string_hash_to_newline("< Ranura " + string(global.slot) + " >"));
                   draw_set_color(c_white);
-                  draw_set_halign(fa_left);
-                  if (xrow == 2 && xsel == 1)
+                  if (pick)
                   {
                       draw_set_color(c_yellow);
+                      draw_text_outline(xv + 160, yy + 60, string_hash_to_newline("< " + fl[fsel] + " >"));
+                      draw_set_color(c_white);
                   }
-                  draw_text_outline(xv + 85, yy + 60, string_hash_to_newline("Exportar"));
-                  draw_set_color(c_white);
-                  if (xrow == 2 && xsel == 2)
+                  else
                   {
-                      draw_set_color(c_yellow);
+                      draw_set_halign(fa_left);
+                      if (xrow == 2 && xsel == 1)
+                      {
+                          draw_set_color(c_yellow);
+                      }
+                      draw_text_outline(xv + 85, yy + 60, string_hash_to_newline("Exportar"));
+                      draw_set_color(c_white);
+                      if (xrow == 2 && xsel == 2)
+                      {
+                          draw_set_color(c_yellow);
+                      }
+                      draw_text_outline(xv + 175, yy + 60, string_hash_to_newline("Importar"));
+                      draw_set_color(c_white);
                   }
-                  draw_text_outline(xv + 175, yy + 60, string_hash_to_newline("Importar"));
-                  draw_set_color(c_white);
+                  draw_set_halign(fa_center);
                   if (msg != "")
                   {
-                      draw_set_halign(fa_center);
                       draw_text_outline(xv + 160, yy + 85, string_hash_to_newline(msg));
-                      draw_set_halign(fa_left);
+                      if (showpath)
+                      {
+                          draw_text_transformed(xv + 160, yy + 100, game_save_id, 0.6, 0.6, 0);
+                      }
                   }
+                  draw_set_halign(fa_left);
                   if (file_exists("Save.sav"))
                   {
                       ini_open("Save.sav");
@@ -572,11 +658,22 @@ jobs:
                   {
                       draw_set_color(c_yellow);
                   }
-                  draw_text_outline(160, 197, string_hash_to_newline("Importar partida"));
+                  if (pick)
+                  {
+                      draw_text_outline(160, 197, string_hash_to_newline("< " + fl[fsel] + " >"));
+                  }
+                  else
+                  {
+                      draw_text_outline(160, 197, string_hash_to_newline("Importar partida"));
+                  }
                   draw_set_color(c_white);
                   if (msg != "")
                   {
-                      draw_text_outline(160, 226, string_hash_to_newline(msg));
+                      draw_text_outline(160, 221, string_hash_to_newline(msg));
+                      if (showpath)
+                      {
+                          draw_text_transformed(160, 232, game_save_id, 0.55, 0.55, 0);
+                      }
                   }
                   draw_set_halign(fa_left);
                   draw_set_color(c_white);
