@@ -1,4 +1,4 @@
-name: Construir APK con mod
+name: Construir APK con mod + selector de archivos
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Descargar el repositorio (para la foto)
+      - name: Descargar el repositorio (para la foto y saf_patch.sh)
         uses: actions/checkout@v4
 
       - name: Descargar el APK original
@@ -76,6 +76,8 @@ jobs:
           fsel = 0;
           fl[0] = "Portapapeles";
           reload = false;
+          waitimp = false;
+          waitt = 0;
           if (!variable_global_exists("menu_sprite"))
           {
               global.menu_sprite = asset_get_index("bg_ruins02");
@@ -157,6 +159,55 @@ jobs:
                   route = ini_read_real("Route", "00", 2);
                   ini_close();
               }
+          }
+          if (waitimp)
+          {
+              waitt += 1;
+              if (file_exists("uty_import.done") || waitt > 300)
+              {
+                  if (file_exists("uty_import.done"))
+                  {
+                      file_delete("uty_import.done");
+                  }
+                  if (file_exists("uty_import.req"))
+                  {
+                      file_delete("uty_import.req");
+                  }
+                  waitimp = false;
+                  msg = "";
+                  showpath = false;
+                  msgt = 0;
+                  nfiles = 1;
+                  fl[0] = "Portapapeles";
+                  fsel = 0;
+                  var wfn = file_find_first("partida*.txt", 0);
+                  while (wfn != "")
+                  {
+                      if (nfiles < 20)
+                      {
+                          fl[nfiles] = wfn;
+                          if (wfn == "partida_importada.txt")
+                          {
+                              fsel = nfiles;
+                          }
+                          nfiles += 1;
+                      }
+                      wfn = file_find_next();
+                  }
+                  file_find_close();
+                  if (fsel == 0 && nfiles > 1)
+                  {
+                      fsel = 1;
+                  }
+                  pick = true;
+                  if (nfiles == 1)
+                  {
+                      msg = "Sin archivos en:";
+                      showpath = true;
+                      msgt = 400;
+                  }
+              }
+              exit;
           }
           var in_main = (room == rm_mainmenu);
           if (xrow > 0)
@@ -398,31 +449,18 @@ jobs:
                           }
                           else
                           {
-                              nfiles = 1;
-                              fl[0] = "Portapapeles";
-                              var fn = file_find_first("partida*.txt", 0);
-                              while (fn != "")
+                              if (file_exists("uty_import.done"))
                               {
-                                  if (nfiles < 20)
-                                  {
-                                      fl[nfiles] = fn;
-                                      nfiles += 1;
-                                  }
-                                  fn = file_find_next();
+                                  file_delete("uty_import.done");
                               }
-                              file_find_close();
-                              fsel = 0;
-                              if (nfiles > 1)
-                              {
-                                  fsel = 1;
-                              }
-                              pick = true;
-                              if (nfiles == 1)
-                              {
-                                  msg = "Sin archivos en:";
-                                  showpath = true;
-                                  msgt = 400;
-                              }
+                              var rq = file_text_open_write("uty_import.req");
+                              file_text_write_string(rq, "1");
+                              file_text_close(rq);
+                              waitimp = true;
+                              waitt = 0;
+                              msg = "Elige el archivo...";
+                              showpath = false;
+                              msgt = 400;
                           }
                       }
                   }
@@ -691,24 +729,21 @@ jobs:
           using System;
           using System.IO;
           using UndertaleModLib.Compiler;
-
           var group = new CodeImportGroup(Data);
           group.QueueReplace("gml_Object_obj_mainmenu_Create_0", File.ReadAllText("create.gml"));
           group.QueueReplace("gml_Object_obj_mainmenu_Step_0", File.ReadAllText("step.gml"));
           group.QueueReplace("gml_Object_obj_mainmenu_Draw_0", File.ReadAllText("draw.gml"));
-
           string hook = "scr_savegame();\n" +
-              "if (variable_global_exists(\"slot\"))\n" +
-              "{\n" +
-              "    var slotf = \"Slot\" + string(global.slot) + \".sav\";\n" +
-              "    if (file_exists(slotf))\n" +
-              "    {\n" +
-              "        file_delete(slotf);\n" +
-              "    }\n" +
-              "    file_copy(\"Save.sav\", slotf);\n" +
-              "}";
+          "if (variable_global_exists(\"slot\"))\n" +
+          "{\n" +
+          " var slotf = \"Slot\" + string(global.slot) + \".sav\";\n" +
+          " if (file_exists(slotf))\n" +
+          " {\n" +
+          " file_delete(slotf);\n" +
+          " }\n" +
+          " file_copy(\"Save.sav\", slotf);\n" +
+          "}";
           group.QueueFindReplace("gml_Object_obj_savebox_Step_0", "scr_savegame();", hook);
-
           group.Import();
           Console.WriteLine("Mod aplicado correctamente");
           EOF
@@ -726,6 +761,12 @@ jobs:
           mkdir -p stage/assets
           cp patched.droid stage/assets/game.droid
           (cd stage && zip -q ../mod.apk assets/game.droid)
+          ls -la mod.apk
+
+      - name: Añadir selector de archivos (Exportar / Importar)
+        run: |
+          bash saf_patch.sh mod.apk mod_saf.apk
+          mv mod_saf.apk mod.apk
           ls -la mod.apk
 
       - name: Restaurar la llave de firma (cache)
@@ -754,4 +795,4 @@ jobs:
         run: |
           gh release delete mod --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
           gh release create mod uty-mod.apk --repo "$GITHUB_REPOSITORY" \
-            --title "APK con mod" --notes "Ranuras de guardado, fondo personalizado y exportar/importar partida."
+            --title "APK con mod" --notes "Ranuras de guardado, fondo personalizado y exportar/importar partida con selector de archivos."
