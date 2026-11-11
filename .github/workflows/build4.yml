@@ -1,0 +1,370 @@
+name: Construir APK con mod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar el repositorio (para la foto)
+        uses: actions/checkout@v4
+
+      - name: Descargar el APK original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern "uty-es-android.apk" --dir .
+          mkdir -p apk_extract
+          unzip -q uty-es-android.apk assets/game.droid -d apk_extract
+
+      - name: Descargar UndertaleModTool CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view --repo UnderminersTeam/UndertaleModTool --json assets --jq '.assets[].name' | tee assets.txt
+          NAME=$(grep -i 'cli' assets.txt | grep -iE 'linux|ubuntu' | head -n1)
+          echo "Elegido: $NAME"
+          [ -n "$NAME" ] || { echo "No se encontro CLI para Linux"; exit 1; }
+          gh release download --repo UnderminersTeam/UndertaleModTool --pattern "$NAME" --dir umt
+          cd umt && unzip -o -q "$NAME"
+          chmod +x UndertaleModCli* || true
+          ls -la
+
+      - name: Preparar la imagen de fondo (320x240)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick
+          if [ -f fondo.jpg ]; then F=fondo.jpg; else F=$(find . -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | head -n1); fi
+          echo "Imagen elegida: $F"
+          [ -n "$F" ] || { echo "No hay imagen en la raiz del repositorio"; exit 1; }
+          convert "${F}[0]" -resize 320x240^ -gravity center -extent 320x240 -blur 0x6 -brightness-contrast -25 bg.png
+          convert "${F}[0]" -resize x240 fg.png
+          convert bg.png fg.png -gravity center -composite -quality 85 fondo_menu.jpg
+          ls -la fondo_menu.jpg
+          base64 -w0 fondo_menu.jpg > fondo_b64.txt
+
+      - name: Escribir el codigo del mod
+        run: |
+          cat > create.gml <<'EOF'
+          var world_value = 0;
+          route = 2;
+          if (!variable_global_exists("slot"))
+          {
+              ini_open("slotcfg.ini");
+              global.slot = ini_read_real("s", "n", 1);
+              ini_close();
+          }
+          if (file_exists("Save.sav"))
+          {
+              var sf = "Slot" + string(global.slot) + ".sav";
+              if (file_exists(sf))
+              {
+                  file_delete(sf);
+              }
+              file_copy("Save.sav", sf);
+          }
+          xrow = 0;
+          xsel = 1;
+          msg = "";
+          msgt = 0;
+          showpath = false;
+          pick = false;
+          nfiles = 1;
+          fsel = 0;
+          fl[0] = "Portapapeles";
+          reload = false;
+          if (!variable_global_exists("menu_sprite"))
+          {
+              global.menu_sprite = asset_get_index("bg_ruins02");
+          }
+          if (!variable_global_exists("fondo_spr"))
+          {
+              global.fondo_spr = -1;
+          }
+          if (global.fondo_spr == -1)
+          {
+              var fb = buffer_base64_decode("@@B64@@");
+              buffer_save(fb, "fondo_menu.jpg");
+              buffer_delete(fb);
+              global.fondo_spr = sprite_add("fondo_menu.jpg", 1, false, false, 0, 0);
+          }
+          if (file_exists("Save.sav"))
+          {
+              ini_open("Save.sav");
+              global.current_room_overworld = ini_read_string("Save1", "room", "rm_ruins00");
+              global.menu_sprite = asset_get_index(ini_read_string("Save1", "Menu", "bg_ruins02"));
+              route = ini_read_real("Route", "00", 2);
+              world_value = scr_determine_world_value_yellow();
+              ini_close();
+          }
+          mus = 129;
+          switch (world_value)
+          {
+              case 0:
+              case 5:
+                  mus = 129;
+                  break;
+              case 1:
+                  mus = 130;
+                  break;
+              case 2:
+                  mus = 131;
+                  break;
+              case 3:
+                  mus = 17;
+                  break;
+              case 4:
+                  mus = 45;
+                  break;
+          }
+          if (route != 3)
+          {
+              audio_play_sound(mus, 20, 1);
+          }
+          p[3] = false;
+          p[2] = false;
+          p[1] = true;
+          sh = 0.5;
+          waiter = 0;
+          EOF
+
+          cat > step.gml <<'EOF'
+          if (waiter == 1)
+          {
+              exit;
+          }
+          scr_get_input();
+          if (msgt > 0)
+          {
+              msgt -= 1;
+              if (msgt <= 0)
+              {
+                  msg = "";
+                  showpath = false;
+              }
+          }
+          if (reload)
+          {
+              reload = false;
+              if (file_exists("Save.sav"))
+              {
+                  ini_open("Save.sav");
+                  global.current_room_overworld = ini_read_string("Save1", "room", "rm_ruins00");
+                  global.menu_sprite = asset_get_index(ini_read_string("Save1", "Menu", "bg_ruins02"));
+                  route = ini_read_real("Route", "00", 2);
+                  ini_close();
+              }
+          }
+          var in_main = (room == rm_mainmenu);
+          if (xrow > 0)
+          {
+              if (pick)
+              {
+                  if (global.up_keyp)
+                  {
+                      pick = false;
+                  }
+                  else
+                  {
+                      if (global.left_keyp)
+                      {
+                          fsel -= 1;
+                          if (fsel < 0)
+                          {
+                              fsel = nfiles - 1;
+                          }
+                      }
+                      if (global.right_keyp)
+                      {
+                          fsel += 1;
+                          if (fsel >= nfiles)
+                          {
+                              fsel = 0;
+                          }
+                      }
+                      if (keyboard_multicheck_pressed(0) == true)
+                      {
+                          var icode = "";
+                          if (fsel == 0)
+                          {
+                              icode = clipboard_get_text();
+                          }
+                          else
+                          {
+                              var rf = file_text_open_read(fl[fsel]);
+                              icode = file_text_read_string(rf);
+                              file_text_close(rf);
+                          }
+                          icode = string_replace_all(icode, " ", "");
+                          icode = string_replace_all(icode, chr(10), "");
+                          icode = string_replace_all(icode, chr(13), "");
+                          var ok = false;
+                          if (string_copy(icode, 1, 5) == "UTY1:")
+                          {
+                              var rest = string_delete(icode, 1, 5);
+                              var cp = string_pos(":", rest);
+                              if (cp > 1)
+                              {
+                                  var i1 = string_copy(rest, 1, cp - 1);
+                                  var i2 = string_delete(rest, 1, cp);
+                                  var d1 = buffer_base64_decode(i1);
+                                  if (d1 >= 0)
+                                  {
+                                      var u1 = buffer_decompress(d1);
+                                      buffer_delete(d1);
+                                      if (u1 >= 0)
+                                      {
+                                          if (buffer_get_size(u1) > 20)
+                                          {
+                                              if (file_exists("Save.sav"))
+                                              {
+                                                  if (file_exists("Save_respaldo.sav"))
+                                                  {
+                                                      file_delete("Save_respaldo.sav");
+                                                  }
+                                                  file_copy("Save.sav", "Save_respaldo.sav");
+                                              }
+                                              buffer_save(u1, "Save.sav");
+                                              ok = true;
+                                          }
+                                          buffer_delete(u1);
+                                      }
+                                  }
+                                  if (ok && string_length(i2) > 0)
+                                  {
+                                      var d2 = buffer_base64_decode(i2);
+                                      if (d2 >= 0)
+                                      {
+                                          var u2 = buffer_decompress(d2);
+                                          buffer_delete(d2);
+                                          if (u2 >= 0)
+                                          {
+                                              buffer_save(u2, "Save02.sav");
+                                              buffer_delete(u2);
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                          if (ok)
+                          {
+                              var sf2 = "Slot" + string(global.slot) + ".sav";
+                              if (file_exists(sf2))
+                              {
+                                  file_delete(sf2);
+                              }
+                              file_copy("Save.sav", sf2);
+                              pick = false;
+                              audio_stop_sound(mus);
+                              room_goto(rm_mainmenu);
+                          }
+                          else
+                          {
+                              msg = "Codigo invalido";
+                              showpath = false;
+                              msgt = 150;
+                          }
+                      }
+                  }
+              }
+              else
+              {
+                  if (global.up_keyp)
+                  {
+                      xrow -= 1;
+                      if (xrow == 0)
+                      {
+                          if (in_main)
+                          {
+                              p[3] = true;
+                          }
+                          else
+                          {
+                              p[2] = true;
+                          }
+                      }
+                  }
+                  else if (global.down_keyp)
+                  {
+                      if (xrow < 2)
+                      {
+                          xrow += 1;
+                          if (!in_main)
+                          {
+                              xsel = 2;
+                          }
+                      }
+                  }
+                  else
+                  {
+                      if (xrow == 1)
+                      {
+                          var ns = global.slot;
+                          if (global.left_keyp)
+                          {
+                              ns -= 1;
+                          }
+                          if (global.right_keyp)
+                          {
+                              ns += 1;
+                          }
+                          if (ns < 1)
+                          {
+                              ns = 3;
+                          }
+                          if (ns > 3)
+                          {
+                              ns = 1;
+                          }
+                          if (ns != global.slot)
+                          {
+                              var oldf = "Slot" + string(global.slot) + ".sav";
+                              var newf = "Slot" + string(ns) + ".sav";
+                              if (file_exists("Save.sav"))
+                              {
+                                  if (file_exists(oldf))
+                                  {
+                                      file_delete(oldf);
+                                  }
+                                  file_copy("Save.sav", oldf);
+                                  file_delete("Save.sav");
+                              }
+                              if (file_exists(newf))
+                              {
+                                  file_copy(newf, "Save.sav");
+                              }
+                              global.slot = ns;
+                              ini_open("slotcfg.ini");
+                              ini_write_real("s", "n", ns);
+                              ini_close();
+                              reload = true;
+                              if (!in_main && file_exists("Save.sav"))
+                              {
+                                  audio_stop_sound(mus);
+                                  room_goto(rm_mainmenu);
+                              }
+                          }
+                      }
+                      if (xrow == 2 && in_main)
+                      {
+                          if (global.left_keyp)
+                          {
+                              xsel = 1;
+                          }
+                          if (global.right_keyp)
+                          {
+                              xsel = 2;
+                          }
+                      }
+                      if (xrow == 2 && keyboard_multicheck_pressed(0) == true)
+                      {
+                          if (xsel == 1 && in_main)
+                          {
+                              if (file_exists("Save.sav"))
+                              {
+                                  var b1 = buffer_load("Save.sav");
+                                  var c1 = buffer_compress(b1, 0, buffer_get_size(b1));
+                                  var s1 = buffer_base64_
