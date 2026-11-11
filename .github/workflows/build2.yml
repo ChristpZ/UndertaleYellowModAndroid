@@ -387,22 +387,13 @@ jobs:
           cat > patch.csx <<'EOF'
           using System;
           using System.IO;
+          using UndertaleModLib.Compiler;
 
-          void Patch(string name, string gml)
-          {
-              ImportGMLString(name, gml);
-              Console.WriteLine("OK " + name);
-          }
+          var group = new CodeImportGroup(Data);
+          group.QueueReplace("gml_Object_obj_mainmenu_Create_0", File.ReadAllText("create.gml"));
+          group.QueueReplace("gml_Object_obj_mainmenu_Step_0", File.ReadAllText("step.gml"));
+          group.QueueReplace("gml_Object_obj_mainmenu_Draw_0", File.ReadAllText("draw.gml"));
 
-          Patch("gml_Object_obj_mainmenu_Create_0", File.ReadAllText("create.gml"));
-          Patch("gml_Object_obj_mainmenu_Step_0", File.ReadAllText("step.gml"));
-          Patch("gml_Object_obj_mainmenu_Draw_0", File.ReadAllText("draw.gml"));
-
-          string sb = GetDecompiledText("gml_Object_obj_savebox_Step_0");
-          if (!sb.Contains("scr_savegame();"))
-          {
-              throw new Exception("No se encontro scr_savegame(); en obj_savebox_Step_0");
-          }
           string hook = "scr_savegame();\n" +
               "if (variable_global_exists(\"slot\"))\n" +
               "{\n" +
@@ -413,8 +404,10 @@ jobs:
               "    }\n" +
               "    file_copy(\"Save.sav\", slotf);\n" +
               "}";
-          sb = sb.Replace("scr_savegame();", hook);
-          Patch("gml_Object_obj_savebox_Step_0", sb);
+          group.QueueFindReplace("gml_Object_obj_savebox_Step_0", "scr_savegame();", hook);
+
+          group.Import();
+          Console.WriteLine("Mod aplicado correctamente");
           EOF
 
       - name: Aplicar el mod a game.droid
